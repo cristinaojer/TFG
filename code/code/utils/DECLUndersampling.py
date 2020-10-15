@@ -1,8 +1,52 @@
+import matplotlib.pyplot as plt
 import numpy as np
+import statistics as stats
+import math
 import random
+import array
 
-from utils.DEClustering import DEClustering
-from utils.main_utilities import convert_classes
+from time import time
+
+#metrics
+from sklearn import metrics
+from imblearn.metrics import geometric_mean_score
+from sklearn.metrics import classification_report
+
+#model_selection
+from sklearn.model_selection import KFold, StratifiedKFold
+from sklearn.model_selection import train_test_split
+
+#resampling
+from imblearn.over_sampling import SMOTE
+from imblearn.combine import SMOTETomek, SMOTEENN
+
+#clasificadores
+from sklearn.ensemble import AdaBoostClassifier
+from sklearn.tree import DecisionTreeClassifier
+from imblearn.ensemble import RUSBoostClassifier
+
+#DEAP library for evolutionary algorithms
+from deap import base
+from deap import creator
+from deap import tools
+
+#datasets
+from collections import Counter
+
+import numpy as np
+from sklearn.base import is_regressor
+from sklearn.ensemble.forest import BaseForest
+from sklearn.neighbors import NearestNeighbors
+from sklearn.preprocessing import normalize
+from sklearn.tree.tree import BaseDecisionTree
+from sklearn.utils import check_random_state
+from sklearn.utils import check_X_y
+
+from DE_tools import DEClustering
+
+# returns the euclidean distance between two points
+def euclidean(v1, v2):
+    return sum((p-q)**2 for p, q in zip(v1, v2)) ** .5
 
 class DECLUndersampling(object):
     def __init__(self, H=6, alpha=0.8, CR=None, F=None, POP_SIZE=None, NGEN=None):
@@ -10,7 +54,6 @@ class DECLUndersampling(object):
         self.alpha = alpha
          
         self.decl = DEClustering(CR, F, POP_SIZE, NGEN)
-#         super(DECLUndersampling, self).__init__(X=X_train, y=y_train)
     
     
     def clustering_centers(self,X,y,maj_class,min_class):
@@ -35,15 +78,12 @@ class DECLUndersampling(object):
         return cluster_stabilities
 
     def undersample(self,X,y):
-        
-        classes,maj_class,min_class = convert_classes(y)
-        
         #compute H clustering processes
-        cl_c = self.clustering_centers(X,y,maj_class,min_class)
+        cl_c = self.clustering_centers(X,y,-1,1)
         
         #compute cluster stability for each majority sample
-        majority_samples = X[y==maj_class]
-        cl_st = self.cluster_stabilities(majority_samples,maj_class,min_class,cl_c)
+        majority_samples = X[y==-1]
+        cl_st = self.cluster_stabilities(majority_samples,-1,1,cl_c)
             
         #compute boundary and non-boundary samples
         boundary_points = majority_samples[np.array(cl_st)<=self.alpha]
@@ -53,7 +93,7 @@ class DECLUndersampling(object):
         nbp_us = rus(non_boundary_points)
         
         #build undersampled training set
-        X_US, y_US = unify_training_set(X,y,maj_class,min_class,boundary_points,nbp_us)
+        X_US, y_US = unify_training_set(X,y,-1,1,boundary_points,nbp_us)
 
         return X_US, y_US
 
@@ -63,44 +103,6 @@ def classify(x,centers):
     dist_majcenter = euclidean(x,centers[:len(x)])
     dist_mincenter = euclidean(x,centers[len(x):])
     return np.argmin([dist_majcenter,dist_mincenter])
-
-# function to generate the initial random population from the training set
-def load_individuals(X,y,maj_class,min_class,creator,n):
-    """
-
-    """
-    maj_samples = X[y == maj_class]
-    min_samples = X[y == min_class]
-    individuals = []
-    for i in range(n):
-        random_maj = maj_samples[random.randint(0,maj_samples.shape[0]-1)]
-        random_min = min_samples[random.randint(0,min_samples.shape[0]-1)]
-        individual = np.asarray(np.concatenate((random_maj,random_min)))
-
-        individual = creator(individual)
-        individuals.append(individual)
-    return individuals
-
-# returns the euclidean distance between two points
-def euclidean(v1, v2):
-    return sum((p-q)**2 for p, q in zip(v1, v2)) ** .5
-
-#returns the sum of the distances from each sample in X_train to the closest center
-#we are interested in minimizing this sum of distances
-def evaluate(X,individual):
-    D = X.shape[1]
-    S = 0
-    for x in X:
-        dist = dist_to_closest_center(x,individual[:D],individual[D:])
-        S += dist
-
-    return S,
-
-#computes the euclidean distance for both centers and returns the shortest one
-def dist_to_closest_center(x,maj_center,min_center):
-    dist_majcenter = euclidean(x,maj_center)
-    dist_mincenter = euclidean(x,min_center)
-    return min(dist_majcenter,dist_mincenter)
 
 def unify_training_set(X,y,maj_class,min_class,boundary_points,nbp_us):
     new_majorityclass_training = np.vstack((boundary_points,nbp_us))

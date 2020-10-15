@@ -1,59 +1,38 @@
-import matplotlib.pyplot as plt
 import numpy as np
 import statistics as stats
-import math
 import random
 import array
 
-from time import time
-
-#metrics
-from sklearn import metrics
-from imblearn.metrics import geometric_mean_score
-from sklearn.metrics import classification_report
-
-#model_selection
-from sklearn.model_selection import KFold, StratifiedKFold
-from sklearn.model_selection import train_test_split
-
-#resampling
-from imblearn.over_sampling import SMOTE
-from imblearn.combine import SMOTETomek, SMOTEENN
-
 #clasificadores
 from sklearn.ensemble import AdaBoostClassifier
-from sklearn.ensemble.forest import BaseForest
 from sklearn.tree import DecisionTreeClassifier
-from sklearn.tree.tree import BaseDecisionTree
-from imblearn.ensemble import RUSBoostClassifier
-
-#DEAP library for evolutionary algorithms
-from deap import base
-from deap import creator
-from deap import tools
 
 #datasets
-from imblearn.datasets import fetch_datasets
-
 from collections import Counter
 
-#sklearn
 from sklearn.base import is_regressor
-from sklearn.neighbors import NearestNeighbors
+from sklearn.ensemble.forest import BaseForest
 from sklearn.preprocessing import normalize
+from sklearn.tree.tree import BaseDecisionTree
 from sklearn.utils import check_random_state
 from sklearn.utils import check_X_y
 
-class OversampleBoost(AdaBoostClassifier):
-    """Implementation of OversampleBoost.
-    OversampleBoost introduces data sampling into the AdaBoost algorithm by
-    oversampling the minority class using a give resampling technique on each boosting iteration [1].
+#resampling
+from imblearn.over_sampling import SMOTE
+
+from DE_tools import DESMOTE
+from DE_tools import DEClustering
+from utils.DECLUndersampling import DECLUndersampling
+
+class DERSBoost(AdaBoostClassifier):
+    """Implementation of DERSBoost.
+    DERSBoost introduces data sampling into the AdaBoost algorithm by both
+    undersampling the majority class guided by a Differential Evolutionary algorithm, and
+    oversampling the minority class using also a DE-guided SMOTE procedure on each boosting iteration [1].
     This implementation inherits methods from the scikit-learn 
     AdaBoostClassifier class, only modifying the `fit` method.
     Parameters
     ----------
-	oversampling_algorithm: string
-		Name of the resampling technique to use ('SMOTE','SMOTE-TOMEK','SMOTE-ENN')
     n_samples : int, optional (default=100)
         Number of new synthetic samples per boosting step.
     k_neighbors : int, optional (default=5)
@@ -62,7 +41,7 @@ class OversampleBoost(AdaBoostClassifier):
         The base estimator from which the boosted ensemble is built.
         Support for sample weighting is required, as well as proper `classes_`
         and `n_classes_` attributes.
-    n_estimators : int, optional (default=10)
+    n_estimators : int, optional (default=50)
         The maximum number of estimators at which boosting is terminated.
         In case of perfect fit, the learning procedure is stopped early.
     learning_rate : float, optional (default=1.)
@@ -88,35 +67,40 @@ class OversampleBoost(AdaBoostClassifier):
     """
 
     def __init__(self,
-                 oversampling_algorithm,
-                 n_samples=100,
                  k_neighbors=5,
                  base_estimator=None,
-                 n_estimators=10,
+                 n_estimators=50,
                  learning_rate=1.,
                  algorithm='SAMME.R',
-                 random_state=None):
-
-        self.n_samples = n_samples
+                 random_state=None,
+                 H=6,
+                 CR=0.6,
+                 F=0.5,
+                 POP_SIZE=10,
+                 NGEN=100,
+                 us_alpha=0.8
+                ):
+        
         self.smote_kneighbors = k_neighbors
         self.algorithm = algorithm
-
-        if oversampling_algorithm=='SMOTE':
-            self.resampling = SMOTE(k_neighbors = self.smote_kneighbors)
-        elif oversampling_algorithm=='SMOTE-TOMEK':
-            self.resampling = SMOTETomek()
-        elif oversampling_algorithm=='SMOTE-ENN':
-            self.resampling = SMOTEENN()
+        self.H = H
+        self.CR = CR
+        self.F = F
+        self.POP_SIZE = POP_SIZE
+        self.NGEN = NGEN
+        self.us_alpha = us_alpha
         
-        super(OversampleBoost, self).__init__(
+        self.desmote = DESMOTE(self.CR,self.F,self.POP_SIZE,self.NGEN)
+
+        super(DERSBoost, self).__init__(
             base_estimator=base_estimator,
             n_estimators=n_estimators,
             learning_rate=learning_rate,
             random_state=random_state)
-
+        
     def fit(self, X, y, sample_weight=None, minority_target=None):
         """Build a boosted classifier/regressor from the training set (X, y),
-        performing RESAMPLING during each boosting step.
+        performing SMOTE during each boosting step.
         Parameters
         ----------
         X : {array-like, sparse matrix} of shape = [n_samples, n_features]
@@ -162,6 +146,10 @@ class OversampleBoost(AdaBoostClassifier):
         X, y = check_X_y(X, y, accept_sparse=accept_sparse, dtype=dtype,
                          y_numeric=is_regressor(self))
 
+        declu = DECLUndersampling(H=self.H, alpha=self.us_alpha, CR=self.CR, F=self.F, POP_SIZE=self.POP_SIZE,
+                                  NGEN=self.NGEN)
+        X, y = declu.undersample(X,y)
+        
         if sample_weight is None:
             # Initialize weights to 1 / n_samples.
             sample_weight = np.empty(X.shape[0], dtype=np.float64)
@@ -183,6 +171,7 @@ class OversampleBoost(AdaBoostClassifier):
             maj_c_ = max(stats_c_, key=stats_c_.get)
             min_c_ = min(stats_c_, key=stats_c_.get)
             self.minority_target = min_c_
+            self.majority_target = maj_c_
         else:
             self.minority_target = minority_target
 
@@ -195,30 +184,52 @@ class OversampleBoost(AdaBoostClassifier):
         self.estimator_errors_ = np.ones(self.n_estimators, dtype=np.float64)
 
         random_state = check_random_state(self.random_state)
-
+        
         for iboost in range(self.n_estimators):
             X_min = X[np.where(y == self.minority_target)]
+            
+            # SMOTE step.
+            if len(X_min) >= self.smote_kneighbors:
+                #create smote model
+                n_maj = X[y==self.majority_target].shape[0]
+                n_min = X_min.shape[0]
+#                 self.smote = SMOTE(k_neighbors = self.smote_kneighbors,
+#                                    sampling_strategy = {self.majority_target: n_maj,self.minority_target: n_min*2})
+                self.smote = SMOTE(k_neighbors = self.smote_kneighbors)
+                #fit and resample with smote
+                X_res, y_res = self.smote.fit_resample(X, y)
+                #select synthetic samples
+                X_syn = X_res[y_res==self.minority_target][n_min:]
 
-            # oversampling step.
-#            if len(X_min) >= self.smote_kneighbors:
-            X_res, y_res = self.resampling.fit_resample(X, y)
-            n_syn = X_res.shape[0]-X.shape[0]	# Number of created synthetic samples
-
-            # Normalize synthetic sample weights based on current training set.
-            sample_weight_syn = np.empty(n_syn, dtype=np.float64)
-            sample_weight_syn[:] = 1. / X.shape[0]
-
-
-            # Combine the weights.
-            sample_weight = \
-                np.append(sample_weight, sample_weight_syn).reshape(-1, 1)
-            sample_weight = \
-                np.squeeze(normalize(sample_weight, axis=0, norm='l1'))
-
+                #DEguided selection of best synthetics
+                self.desmote.fit(X,y,self.majority_target,self.minority_target,X_syn)
+                selected_syn = []
+                for i, value in enumerate(self.desmote.best_ind):
+                    if self.desmote.best_ind[i]>0:
+                        selected_syn.append(X_syn[i])
+                selected_syn = np.array(selected_syn)
+                y_syn = np.full(selected_syn.shape[0], fill_value=self.minority_target,
+                                dtype=np.int64)
+                
+                # Normalize synthetic sample weights based on current training set.
+                sample_weight_syn = np.empty(selected_syn.shape[0], dtype=np.float64)
+                sample_weight_syn[:] = 1. / X.shape[0]
+                
+                # Combine the original and synthetic samples.
+                print(" SE HAN INCLUIDO {} EJEMPLOS SINTÉTICOS".format(selected_syn.shape[0]))
+                X_train = np.vstack((X, selected_syn))
+                y_train = np.append(y, y_syn)
+                
+                # Combine the weights.
+                sample_weight = \
+                    np.append(sample_weight, sample_weight_syn).reshape(-1, 1)
+                sample_weight = \
+                    np.squeeze(normalize(sample_weight, axis=0, norm='l1'))
+                
             # Boosting step.
             sample_weight, estimator_weight, estimator_error = self._boost(
                 iboost,
-                X_res, y_res,
+                X_train, y_train,
                 sample_weight,
                 random_state)
 
@@ -232,6 +243,7 @@ class OversampleBoost(AdaBoostClassifier):
             # Stop if error is zero.
             if estimator_error == 0:
                 break
+                
             sample_weight = sample_weight[:X.shape[0]]
             sample_weight_sum = np.sum(sample_weight)
 
@@ -244,3 +256,6 @@ class OversampleBoost(AdaBoostClassifier):
                 sample_weight /= sample_weight_sum
 
         return self
+
+
+

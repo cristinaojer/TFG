@@ -1,50 +1,23 @@
-import matplotlib.pyplot as plt
 import numpy as np
 import statistics as stats
-import math
 import random
-import array
 
 from time import time
 
 #metrics
-from sklearn import metrics
 from imblearn.metrics import geometric_mean_score
-from sklearn.metrics import classification_report
 
 #model_selection
 from sklearn.model_selection import KFold, StratifiedKFold
-from sklearn.model_selection import train_test_split
-
-#resampling
-from imblearn.over_sampling import SMOTE
-from imblearn.combine import SMOTETomek, SMOTEENN
 
 #clasificadores
 from sklearn.ensemble import AdaBoostClassifier
-from sklearn.ensemble.forest import BaseForest
 from sklearn.tree import DecisionTreeClassifier
-from sklearn.tree.tree import BaseDecisionTree
 from imblearn.ensemble import RUSBoostClassifier
-
-#DEAP library for evolutionary algorithms
-from deap import base
-from deap import creator
-from deap import tools
+from clasificadores import OversampleBoost, DERSBoost
 
 #datasets
 from imblearn.datasets import fetch_datasets
-
-from collections import Counter
-
-#sklearn
-from sklearn.base import is_regressor
-from sklearn.neighbors import NearestNeighbors
-from sklearn.preprocessing import normalize
-from sklearn.utils import check_random_state
-from sklearn.utils import check_X_y
-
-from clasificadores import OversampleBoost, DERSBoost
 
 def obtain_data(dataset_name):
     dataset = fetch_datasets()[dataset_name]
@@ -136,5 +109,3 @@ def train_ensemble_method(dataset_name,method_name, T=10, k=5):
     print("Rendimiento del clasificador {}: {}".format(method_name,rend))
     print("Tiempo medio de entrenamiento: {}".format(time))
     return rend, IR, time
-    
-    

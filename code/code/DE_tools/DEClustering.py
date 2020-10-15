@@ -1,12 +1,84 @@
-import array
+import matplotlib.pyplot as plt
 import numpy as np
+import statistics as stats
+import math
 import random
+import array
+
+from time import time
+
+#metrics
+from sklearn import metrics
+from imblearn.metrics import geometric_mean_score
+from sklearn.metrics import classification_report
+
+#model_selection
+from sklearn.model_selection import KFold, StratifiedKFold
+from sklearn.model_selection import train_test_split
+
+#resampling
+from imblearn.over_sampling import SMOTE
+from imblearn.combine import SMOTETomek, SMOTEENN
+
+#clasificadores
+from sklearn.ensemble import AdaBoostClassifier
+from sklearn.tree import DecisionTreeClassifier
+from imblearn.ensemble import RUSBoostClassifier
+
 #DEAP library for evolutionary algorithms
 from deap import base
 from deap import creator
 from deap import tools
 
-from utils import DECLUndersampling
+#datasets
+from collections import Counter
+
+import numpy as np
+from sklearn.base import is_regressor
+from sklearn.ensemble.forest import BaseForest
+from sklearn.neighbors import NearestNeighbors
+from sklearn.preprocessing import normalize
+from sklearn.tree.tree import BaseDecisionTree
+from sklearn.utils import check_random_state
+from sklearn.utils import check_X_y
+
+
+# returns the euclidean distance between two points
+def euclidean(v1, v2):
+    return sum((p-q)**2 for p, q in zip(v1, v2)) ** .5
+
+# function to generate the initial random population from the training set
+def load_individuals(X,y,maj_class,min_class,creator,n):
+    """
+    """
+    maj_samples = X[y == maj_class]
+    min_samples = X[y == min_class]
+    individuals = []
+    for i in range(n):
+        random_maj = maj_samples[random.randint(0,maj_samples.shape[0]-1)]
+        random_min = min_samples[random.randint(0,min_samples.shape[0]-1)]
+        individual = np.asarray(np.concatenate((random_maj,random_min)))
+
+        individual = creator(individual)
+        individuals.append(individual)
+    return individuals
+
+#returns the sum of the distances from each sample in X_train to the closest center
+#we are interested in minimizing this sum of distances
+def evaluate(X,individual):
+    D = X.shape[1]
+    S = 0
+    for x in X:
+        dist = dist_to_closest_center(x,individual[:D],individual[D:])
+        S += dist
+
+    return S,
+
+#computes the euclidean distance for both centers and returns the shortest one
+def dist_to_closest_center(x,maj_center,min_center):
+    dist_majcenter = euclidean(x,maj_center)
+    dist_mincenter = euclidean(x,min_center)
+    return min(dist_majcenter,dist_mincenter)
 
 class DEClustering(object):
 	
@@ -20,22 +92,15 @@ class DEClustering(object):
         self.POP_SIZE = POP_SIZE
         self.NGEN = NGEN
         
-#         creator.create("FitnessMin", base.Fitness, weights=(-1.0,))
-#         creator.create("Individual", array.array, typecode='d', fitness=creator.FitnessMin)
-#         self.toolbox = base.Toolbox()
-#         self.toolbox.register("select", tools.selRandom, k=3)
-        
         
     def fit(self, X_train, y_train,maj_class,min_class):
         creator.create("FitnessMin", base.Fitness, weights=(-1.0,))
         creator.create("Individual", array.array, typecode='d', fitness=creator.FitnessMin)
         self.toolbox = base.Toolbox()
         self.toolbox.register("select", tools.selRandom, k=3)
-#         self.toolbox.unregister("population")
-#         self.toolbox.unregister("evaluate")
-        self.toolbox.register("population",DECLUndersampling.load_individuals, X_train, y_train, maj_class, min_class,
+        self.toolbox.register("population",load_individuals, X_train, y_train, maj_class, min_class,
                               creator.Individual)
-        self.toolbox.register("evaluate", DECLUndersampling.evaluate, X_train)
+        self.toolbox.register("evaluate", evaluate, X_train)
         
         NDIM = X_train.shape[1]
         
@@ -73,9 +138,6 @@ class DEClustering(object):
                     pop[k] = y
                 #print(pop[k].fitness)
                 
-#                 if abs(last_fitness-agent.fitness.values[0])<1:
-#                     g = NGEN
-#                 last_fitness = agent.fitness.values[0]
             hof.update(pop)
             record = stats.compile(pop)
             logbook.record(gen=g, evals=len(pop), **record)
@@ -88,6 +150,3 @@ class DEClustering(object):
 #         print(self.best_ind)
 #         print(self.best_fitness)
         return self
-
-
-

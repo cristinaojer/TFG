@@ -22,9 +22,7 @@ from imblearn.combine import SMOTETomek, SMOTEENN
 
 #clasificadores
 from sklearn.ensemble import AdaBoostClassifier
-from sklearn.ensemble.forest import BaseForest
 from sklearn.tree import DecisionTreeClassifier
-from sklearn.tree.tree import BaseDecisionTree
 from imblearn.ensemble import RUSBoostClassifier
 
 #DEAP library for evolutionary algorithms
@@ -33,14 +31,14 @@ from deap import creator
 from deap import tools
 
 #datasets
-from imblearn.datasets import fetch_datasets
-
 from collections import Counter
 
-#sklearn
+import numpy as np
 from sklearn.base import is_regressor
+from sklearn.ensemble.forest import BaseForest
 from sklearn.neighbors import NearestNeighbors
 from sklearn.preprocessing import normalize
+from sklearn.tree.tree import BaseDecisionTree
 from sklearn.utils import check_random_state
 from sklearn.utils import check_X_y
 
@@ -54,13 +52,6 @@ class DESMOTE(object):
         self.POP_SIZE = POP_SIZE
         self.NGEN = NGEN
         self.p = p
-        
-#         creator.create("FitnessMax", base.Fitness, weights=(1.0,))
-#         creator.create("Individual", array.array, typecode='d', fitness=creator.FitnessMax, clf=None)
-#         self.toolbox = base.Toolbox()
-#         self.toolbox.register("attr_int", random.randint, 0, 1)
-
-#         self.toolbox.register("select", tools.selRandom, k=3)
     
     
     def fit(self, X, y, maj_class, min_class, syn):

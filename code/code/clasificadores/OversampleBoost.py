@@ -22,9 +22,7 @@ from imblearn.combine import SMOTETomek, SMOTEENN
 
 #clasificadores
 from sklearn.ensemble import AdaBoostClassifier
-from sklearn.ensemble.forest import BaseForest
 from sklearn.tree import DecisionTreeClassifier
-from sklearn.tree.tree import BaseDecisionTree
 from imblearn.ensemble import RUSBoostClassifier
 
 #DEAP library for evolutionary algorithms
@@ -33,33 +31,30 @@ from deap import creator
 from deap import tools
 
 #datasets
-from imblearn.datasets import fetch_datasets
-
 from collections import Counter
 
-#sklearn
+import numpy as np
 from sklearn.base import is_regressor
+from sklearn.ensemble.forest import BaseForest
 from sklearn.neighbors import NearestNeighbors
 from sklearn.preprocessing import normalize
+from sklearn.tree.tree import BaseDecisionTree
 from sklearn.utils import check_random_state
 from sklearn.utils import check_X_y
 
-from utils.DESMOTE import DESMOTE
-from utils import DECLUndersampling
-
-class DERSBoost(AdaBoostClassifier):
-    """Implementation of DERSBoost.
-    DERSBoost introduces data sampling into the AdaBoost algorithm by both
-    undersampling the majority class guided by a Differential Evolutionary algorithm, and
-    oversampling the minority class using also a DE-guided SMOTE procedure on each boosting iteration [1].
+class OversampleBoost(AdaBoostClassifier):
+    """Implementation of a boosting method integrating an oversampling technique.
+    OversampleBoost introduces data sampling into the AdaBoost algorithm by
+    using a resampling method (SMOTE, SMOTETomek or SMOTEENN) on each boosting iteration [1].
     This implementation inherits methods from the scikit-learn 
     AdaBoostClassifier class, only modifying the `fit` method.
     Parameters
     ----------
-    n_samples : int, optional (default=100)
-        Number of new synthetic samples per boosting step.
+    oversampling_algorithm: string
+        Name of the oversampling technique to implement on each boosting iteration
+        (SMOTE, SMOTETomek or SMOTEENN)
     k_neighbors : int, optional (default=5)
-        Number of nearest neighbors.
+        Number of nearest neighbors for the oversampling algorithm
     base_estimator : object, optional (default=DecisionTreeClassifier)
         The base estimator from which the boosted ensemble is built.
         Support for sample weighting is required, as well as proper `classes_`
@@ -90,42 +85,33 @@ class DERSBoost(AdaBoostClassifier):
     """
 
     def __init__(self,
+                 oversampling_algorithm,
                  k_neighbors=5,
                  base_estimator=None,
                  n_estimators=50,
                  learning_rate=1.,
                  algorithm='SAMME.R',
-                 random_state=None,
-                 H=6,
-                 CR=0.6,
-                 F=0.5,
-                 POP_SIZE=10,
-                 NGEN=100,
-                 us_alpha=0.8
-                ):
-        
+                 random_state=None):
+
         self.smote_kneighbors = k_neighbors
         self.algorithm = algorithm
-#         self.maj_class = maj_class
-#         self.min_class = min_class
-        self.H = H
-        self.CR = CR
-        self.F = F
-        self.POP_SIZE = POP_SIZE
-        self.NGEN = NGEN
-        self.us_alpha = us_alpha
         
-        self.desmote = DESMOTE(self.CR,self.F,self.POP_SIZE,self.NGEN)
-
-        super(DERSBoost, self).__init__(
+        if oversampling_algorithm=='SMOTE':
+            self.smote = SMOTE(k_neighbors = self.smote_kneighbors)
+        elif oversampling_algorithm=='SMOTE-TOMEK':
+            self.smote = SMOTETomek()
+        elif oversampling_algorithm=='SMOTE-ENN':
+            self.smote = SMOTEENN()
+        
+        super(OversampleBoost, self).__init__(
             base_estimator=base_estimator,
             n_estimators=n_estimators,
             learning_rate=learning_rate,
             random_state=random_state)
-        
+
     def fit(self, X, y, sample_weight=None, minority_target=None):
         """Build a boosted classifier/regressor from the training set (X, y),
-        performing SMOTE during each boosting step.
+        performing the instantiated oversampling method during each boosting step.
         Parameters
         ----------
         X : {array-like, sparse matrix} of shape = [n_samples, n_features]
@@ -170,20 +156,7 @@ class DERSBoost(AdaBoostClassifier):
 
         X, y = check_X_y(X, y, accept_sparse=accept_sparse, dtype=dtype,
                          y_numeric=is_regressor(self))
-        
-#         #DE-guided clustering
-#         cluster_centers = compute_clusters(X,y)
-#         cluster_stabilities = compute_cluster_stabilities(X,y,self.maj_class,cluster_centers)
-#         #UNDERSAMPLING
-#         boundary, nonboundary = compute_boundary_and_nonboundary_samples(X,y,self.maj_class,cluster_stabilities)
-#         nonboundary_us = undersample_nonboundary_samples(nonboundary,cluster_stabilities)
-#         X, y = undersampled_training_set(X,y,boundary,nonboundary_us,self.maj_class,self.min_class)
 
-
-        declu = DECLUndersampling.DECLUndersampling(H=self.H, alpha=self.us_alpha, CR=self.CR, F=self.F, POP_SIZE=self.POP_SIZE,
-                                  NGEN=self.NGEN)
-        X, y = declu.undersample(X,y)
-        
         if sample_weight is None:
             # Initialize weights to 1 / n_samples.
             sample_weight = np.empty(X.shape[0], dtype=np.float64)
@@ -205,7 +178,6 @@ class DERSBoost(AdaBoostClassifier):
             maj_c_ = max(stats_c_, key=stats_c_.get)
             min_c_ = min(stats_c_, key=stats_c_.get)
             self.minority_target = min_c_
-            self.majority_target = maj_c_
         else:
             self.minority_target = minority_target
 
@@ -218,59 +190,30 @@ class DERSBoost(AdaBoostClassifier):
         self.estimator_errors_ = np.ones(self.n_estimators, dtype=np.float64)
 
         random_state = check_random_state(self.random_state)
-        
+
         for iboost in range(self.n_estimators):
             X_min = X[np.where(y == self.minority_target)]
 
-            # SMOTE step.
+            # oversampling step.
             if len(X_min) >= self.smote_kneighbors:
-                #create smote model
-                n_maj = X[y==self.majority_target].shape[0]
-                n_min = X_min.shape[0]
-#                 self.smote = SMOTE(k_neighbors = self.smote_kneighbors,
-#                                    sampling_strategy = {self.majority_target: n_maj,self.minority_target: n_min*2})
-                self.smote = SMOTE(k_neighbors = self.smote_kneighbors)
-                #fit and resample with smote
+                #oversample
                 X_res, y_res = self.smote.fit_resample(X, y)
-#                 self.smote.fit(X_min)
-#                 X_syn = self.smote.sample(n_samples = len(X_min))
-                #select synthetic samples
-                X_syn = X_res[y_res==self.minority_target][n_min:]
-#                 y_syn = np.full(X_syn.shape[0], fill_value=self.minority_target,
-#                                 dtype=np.int64)
-
-                #DEguided selection of best synthetics
-                self.desmote.fit(X,y,self.majority_target,self.minority_target,X_syn)
-                selected_syn = []
-                for i, value in enumerate(self.desmote.best_ind):
-                    if self.desmote.best_ind[i]>0:
-                        selected_syn.append(X_syn[i])
-                selected_syn = np.array(selected_syn)
-                y_syn = np.full(selected_syn.shape[0], fill_value=self.minority_target,
-                                dtype=np.int64)
-                
-                # Normalize synthetic sample weights based on current training set.
-                sample_weight_syn = np.empty(selected_syn.shape[0], dtype=np.float64)
+                #number of generated synthetic samples
+                n_syn = X_res.shape[0]-X.shape[0]
+                #weights for the synthetics
+                sample_weight_syn = np.empty(n_syn, dtype=np.float64)
                 sample_weight_syn[:] = 1. / X.shape[0]
-                
-                # Combine the original and synthetic samples.
-                print(" SE HAN INCLUIDO {} EJEMPLOS SINTÉTICOS".format(selected_syn.shape[0]))
-                X_train = np.vstack((X, selected_syn))
-                y_train = np.append(y, y_syn)
-                
+
                 # Combine the weights.
                 sample_weight = \
                     np.append(sample_weight, sample_weight_syn).reshape(-1, 1)
                 sample_weight = \
                     np.squeeze(normalize(sample_weight, axis=0, norm='l1'))
-
-                # X, y, sample_weight = shuffle(X, y, sample_weight,
-                #                              random_state=random_state)
                 
             # Boosting step.
             sample_weight, estimator_weight, estimator_error = self._boost(
                 iboost,
-                X_train, y_train,
+                X_res, y_res,
                 sample_weight,
                 random_state)
 
@@ -284,7 +227,6 @@ class DERSBoost(AdaBoostClassifier):
             # Stop if error is zero.
             if estimator_error == 0:
                 break
-                
             sample_weight = sample_weight[:X.shape[0]]
             sample_weight_sum = np.sum(sample_weight)
 

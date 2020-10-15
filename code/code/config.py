@@ -4,10 +4,10 @@ class Config:
 
 	RANDOM_STATE = None
 
-    BASE_ESTIMATOR =  DecisionTreeClassifier(criterion='entropy', max_depth=1)
+    	BASE_ESTIMATOR =  DecisionTreeClassifier(criterion='entropy', max_depth=1)
 	N_ESTIMATORS = 10
 
-    SMOTE_KNEIGHBORS = 5   
+    	SMOTE_KNEIGHBORS = 5   
     
 	MAJ_CLASS = -1
 	MIN_CLASS = 1
